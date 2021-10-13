@@ -56,6 +56,9 @@ sub main {
       s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
 
       if ($seq) {
+        if ($PARAMS{MASK}) {
+          $seq = mask_sequence($seq, $mask->{$last_chrom});
+        }
         my $seqparts = subset_regions($seq, $last_chrom, $regions);
         update_counts($seqparts, \%bg_counts, $kmer_size, \%PARAMS);
       }
