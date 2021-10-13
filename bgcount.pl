@@ -67,8 +67,29 @@ sub main {
   }
 
   # Print results
-  for my $k (sort keys %bg_counts) {
-    print "$k\t$bg_counts{$k}\n";
+  if ($PARAMS{PYRIMIDINE}) {
+    # Add combine pyrimidine based kmers with its reverse
+    # complement counterparts
+    my %bg_counts_pyr;
+    my $mid_point = ($kmer_size - 1) / 2;
+    my $pyrimidines = 'ctCT';
+    for my $k (keys %bg_counts) {
+      if (substr($k, $mid_point, 1) =~ /[$pyrimidines]/) {
+        $bg_counts_pyr{$k} += $bg_counts{$k};
+      } else {
+        my $krc = revcomp($k);
+        $bg_counts_pyr{$krc} += $bg_counts{$krc};
+      }
+    }
+
+    # Then print them
+    for my $k (sort keys %bg_counts_pyr) {
+      print "$k\t$bg_counts_pyr{$k}\n";
+    }
+  } else {
+    for my $k (sort keys %bg_counts) {
+      print "$k\t$bg_counts{$k}\n";
+    }
   }
 }
 
@@ -145,9 +166,6 @@ sub update_counts {
     for (my $i = 0; $end < $seqlen; $i++) {
       my $ctx = substr($seqpart, $i, $ks);
       if ($ctx =~ /[0-9]+/) {
-        #        print "DEBUG: i=$i end=$end ctx=$ctx\n counts=$counts->{$ctx}\n" ;
-        #        print "DEBUG: substr(seqparts, 0, 10) = " . substr($seqpart, 0, 10) . "\n" ;
-        #        print "DEBUG: $seqpart\n";
       }
       $counts->{$ctx}++;
       $end++
