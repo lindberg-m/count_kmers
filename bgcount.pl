@@ -8,18 +8,20 @@ usage:
   bgcount.pl [-h] [-v] [-p] [-b bedfile] SIZE < fasta_file.fa
 
   Optional Arguments
-    -h, --help        Show this message and exit
-    -v, --verbose     Increase terminal output
+    -h, --help        Show this message and exit.
+    -v, --verbose     Increase terminal output.
     -p, --pyrimidine  When kmers are of odd length, use pyrimidine based
-                      contexts
+                      contexts.
     -i, --ignore-amb  Ignore ambiguous contexts [default=true], setting this param
                       turn this feature off.
-    -u, --upper       Turn all sequences uppercase before counting
-    -l, --ignore-low  Ignore contexts with lower case characters in them
-    -b, --bed         Bedfile to use for subsetting file
+    -u, --upper       Turn all sequences uppercase before counting.
+    -l, --ignore-low  Ignore contexts with lower case characters in them.
+    -b, --bed         Bedfile to use for subsetting file.
+    -m, --mask        Bedfile to use for masking fasta. Positions overlapping
+                      mask regions will be transformed to 'n' characters.
 
   Positional arguments:
-    SIZE              Size of kmers to calculate bgfreq on
+    SIZE              Size of kmers to calculate bgfreq on.
 
 This program reads a fasta formatted file from standard input and
 calculate background frequencies of specified length. Optionally,
@@ -33,13 +35,15 @@ my %PARAMS = (
   IGNORE_AMB => 1,
   MK_UPPER   => 0,
   IGNORE_LOW => 0,
-  BEDFILE    => ''
+  BEDFILE    => '',
+  MASK       => '',
 );
 
 sub main {
   my $kmer_size = parse_args(\%PARAMS);
   my %bg_counts;
   my $regions = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
+  my $mask    = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
 
   # Parse fasta from STDIN and perform subsetting and
   # counting
@@ -99,15 +103,14 @@ sub subset_regions {
   # for that sequence in a regions hash, parsed
   # from a BED-file. Returns all parts of the sequence
   # covered by the specified regions
-  my $seq       = shift; # String, complete DNA sequence for ...
+  my $seq       = shift; # Arref,  complete DNA sequences for ...
   my $seqname   = shift; # String, ... this region/chromosome
   my $regions_r = shift; # Hashref, each key stores an array of (start, end) arrays
-
+  my @seqparts;
 
   my %regions   = %{$regions_r};
   my @chroms    = keys %regions;
 
-  my @seqparts;
 
   if (@chroms) {
     my ($start, $offset, $seqpart);
@@ -121,6 +124,23 @@ sub subset_regions {
     @seqparts = ( $seq );
   }
   return \@seqparts;
+}
+
+sub mask_sequence {
+  my $seq  = shift;
+  my $mask = shift;
+
+  my @mask_regions = sort {$a->[0] <=> $b->[0]} @{$mask};
+  if (scalar @mask_regions > 0) {
+    my $last_end = 0;
+    my $seqlen;
+    for my $r (@mask_regions) {
+      $seqlen = $r->[0] - $last_end - 1;
+      substr($seq, $last_end, $seqlen) = 'n' x $seqlen;
+      $last_end = $r->[1];
+    }
+  }
+  return $seq;
 }
 
 sub update_counts {
@@ -205,8 +225,9 @@ sub parse_args {
       } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
         $params->{IGNORE_LOW} = 1;
       } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
-        $i++;
-        $params->{BEDFILE} = $ARGV[$i];
+        $i++; $params->{BEDFILE} = $ARGV[$i];
+      } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
+        $i++; $params->{MASK} = $ARGV[$i];
       } else {
         die "Unrecongnized argument: $ARGV[$i]\n";
       }
