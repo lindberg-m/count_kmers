@@ -28,12 +28,12 @@ subset fasta based on a bedfile first.
 EOF
 
 my %PARAMS = (
-  VERBOSE => 0,
+  VERBOSE    => 0,
   PYRIMIDINE => 0,
   IGNORE_AMB => 1,
-  MK_UPPER => 0,
+  MK_UPPER   => 0,
   IGNORE_LOW => 0,
-  BEDFILE => ''
+  BEDFILE    => ''
 );
 
 sub main {
@@ -41,50 +41,94 @@ sub main {
   my %bg_counts;
   my $regions = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
 
-  my $seq_name = <STDIN>; # Assumes fasta file start with a sequence identifier
-  $seq_name =~ s/^>//;
-  my $old_seq_name = '';
-  if ($PARAMS{BEDFILE}) {
-    my $chroms = keys %{$regions};
-  } else {
-    my ($seq, $fasta_eof);
+  # Parse fasta from STDIN and perform subsetting and
+  # counting
+  my $last_chrom = '';
+  my $seq        = '';
+  while (<STDIN>) {
+    chomp;
 
-    $old_seq_name = $seq_name; chomp $old_seq_name;
-    ($seq, $seq_name, $fasta_eof) = read_fasta();
-    while ($seq) {
-      update_counts($seq, \%bg_counts, $kmer_size, \%PARAMS);
-      
-      #DEBUG
-      #      {
-      #        my @seqparts = split /[nN]+/, $seq;
-      #        my $minseq = $seq =~ s/[nN]+//gr;
-      #        my $a = length($seq);
-      #        my $b = length($minseq);
-      #        my $c = scalar @seqparts;
-      #        my $d = length (join '', @seqparts);
-      #
-      #        print "$old_seq_name\t$a\t$b\t$c\t$d\n";
-      #      }
-      #END DEBUG
-      
-      last if ($fasta_eof);
-      ($seq, $seq_name, $fasta_eof) = read_fasta();
+    if ( /^>/ ) {
+      s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
+
+      if ($seq) {
+        my $seqparts = subset_regions($seq, $last_chrom, $regions);
+        update_counts($seqparts, \%bg_counts, $kmer_size, \%PARAMS);
+      }
+      $last_chrom = $_;
+      $seq = '';
+    } else {
+      $seq .= $_;
     }
-    for my $k (sort keys %bg_counts) {
-      print "$k\t$bg_counts{$k}\n";
-    }
+  }
+  if ($seq) {
+    my $seqparts = subset_regions($seq, $last_chrom, $regions);
+    update_counts($seqparts, \%bg_counts, $kmer_size, \%PARAMS);
+  }
+
+  # Print results
+  for my $k (sort keys %bg_counts) {
+    print "$k\t$bg_counts{$k}\n";
   }
 }
 
+sub subset_regions {
+  # Accept a sequence with its name
+  # and look up the start and stop positions
+  # for that sequence in a regions hash, parsed
+  # from a BED-file. Returns all parts of the sequence
+  # covered by the specified regions
+  my $seq       = shift; # String, complete DNA sequence for ...
+  my $seqname   = shift; # String, ... this region/chromosome
+  my $regions_r = shift; # Hashref, each key stores an array of (start, end) arrays
+
+
+  my %regions   = %{$regions_r};
+  my @chroms    = keys %regions;
+
+  my @seqparts;
+
+  if (@chroms) {
+    my ($start, $offset, $seqpart);
+    for my $posref (@{$regions{$seqname}}) {
+      $start   = $posref->[0] - 1;
+      $offset  = $posref->[1] - $start;
+      $seqpart = substr($seq, $start, $offset);
+      push @seqparts, $seqpart;
+    }
+  } else {
+    @seqparts = ( $seq );
+  }
+  return \@seqparts;
+}
+
 sub update_counts {
-  my $sequence = shift;
-  my $counts   = shift;
-  my $ks       = shift;
-  my $params   = shift;
+  my $sequence_r = shift; # Arref,   DNA sequences
+  my $counts     = shift; # Hashref, kmer counts per chrom
+  my $ks         = shift; # Integer, size of kmers
+  my $params     = shift; # Hashref, parameters
 
-  $sequence = uc $sequence if ($params->{MK_UPPER});
-  my @seqparts = $params->{IGNORE_LOW} ? split /[a-z]+/, $sequence : ( $sequence );
+  my @seqparts = @{$sequence_r};
 
+   # Make all parts uppercase if necessary
+  if ($params->{MK_UPPER}) {
+    @seqparts = map (uc, @{$sequence_r}) 
+  }
+  
+  # Remove lowercase characters (if necessary) simply
+  # by splitting them away. 
+  if ($params->{IGNORE_LOW}) {
+    my @aux;
+    for my $sp (@seqparts) {
+      for my $sp2 (split /[a-z]+/, $sp){
+        push @aux, $sp2
+      }
+    }
+    @seqparts = @aux;
+  }
+
+  # Remove ambiguous characters (if necessary) simply
+  # by splitting them away. 
   if ($params->{IGNORE_AMB}) {
     my @aux;
     for my $sp (@seqparts) {
@@ -100,25 +144,16 @@ sub update_counts {
     my $seqlen = length($seqpart);
     for (my $i = 0; $end < $seqlen; $i++) {
       my $ctx = substr($seqpart, $i, $ks);
+      if ($ctx =~ /[0-9]+/) {
+        #        print "DEBUG: i=$i end=$end ctx=$ctx\n counts=$counts->{$ctx}\n" ;
+        #        print "DEBUG: substr(seqparts, 0, 10) = " . substr($seqpart, 0, 10) . "\n" ;
+        #        print "DEBUG: $seqpart\n";
+      }
       $counts->{$ctx}++;
       $end++
     }
   }
-}
-
-sub read_fasta {
-  my $seq           = '';
-  my $EOF           = 1;
-  my $next_seq_name = '';
-  while (<STDIN>) {
-    chomp;
-    if (/^>/) {
-      $next_seq_name = $_; $EOF = 0; last;
-    } else {
-      $seq .= $_;
-    }
-  }
-  return ($seq, $next_seq_name, $EOF);
+  return 0;
 }
 
 sub parse_bed {
@@ -128,7 +163,7 @@ sub parse_bed {
   while (<BED>) {
     chomp;
     my ($chrom, $start, $stop) = split;
-    push @{$regions{$chrom}}, [ $start, $stop ];
+    push @{$regions{$chrom}}, [ $start - 1, $stop ];
   }
   return \%regions;
 }
