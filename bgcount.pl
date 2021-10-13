@@ -5,19 +5,19 @@ use warnings;
 
 my $usage = << "EOF";
 usage:
-  bgcount.pl [-h] [-v] [-p] [-b bedfile] SIZE < fasta_file.fa
+  bgcount.pl [-h,-v,-p,-i,-u,-l,-b bedfile, -m bedfile] SIZE < fasta_file.fa
 
   Optional Arguments
     -h, --help        Show this message and exit.
     -v, --verbose     Increase terminal output.
     -p, --pyrimidine  When kmers are of odd length, use pyrimidine based
                       contexts.
-    -i, --ignore-amb  Ignore ambiguous contexts [default=true], setting this param
-                      turn this feature off.
+    -i, --ignore-amb  Ignore ambiguous contexts [default=true], setting this
+                      param turn this feature off.
     -u, --upper       Turn all sequences uppercase before counting.
     -l, --ignore-low  Ignore contexts with lower case characters in them.
-    -b, --bed         Bedfile to use for subsetting file.
-    -m, --mask        Bedfile to use for masking fasta. Positions overlapping
+    -b, --bed  FILE   Bedfile to use for subsetting file.
+    -m, --mask FILE   Bedfile to use for masking fasta. Positions overlapping
                       mask regions will be transformed to 'n' characters.
 
   Positional arguments:
