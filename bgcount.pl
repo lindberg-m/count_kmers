@@ -118,7 +118,7 @@ sub subset_regions {
   if (@chroms) {
     my ($start, $offset, $seqpart);
     for my $posref (@{$regions{$seqname}}) {
-      $start   = $posref->[0] - 1;
+      $start   = $posref->[0];
       $offset  = $posref->[1] - $start;
       $seqpart = substr($seq, $start, $offset);
       push @seqparts, $seqpart;
@@ -138,7 +138,7 @@ sub mask_sequence {
     my $last_end = 0;
     my $seqlen;
     for my $r (@mask_regions) {
-      $seqlen = $r->[0] - $last_end - 1;
+      $seqlen = $r->[0] - $last_end;
       substr($seq, $last_end, $seqlen) = 'n' x $seqlen;
       $last_end = $r->[1];
     }
