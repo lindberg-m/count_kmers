@@ -1,17 +1,17 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl
 
 use strict;
 use warnings;
 
 my $usage = << "EOF";
 usage:
-  bgcount.pl [-h,-v,-p,-i,-u,-l,-b bedfile, -m bedfile] SIZE < fasta_file.fa
+  $0 [-h,-v,-p,-i,-u,-l,-b bedfile, -m bedfile] SIZE < fasta_file.fa
 
   Optional Arguments
     -h, --help        Show this message and exit.
     -v, --verbose     Increase terminal output.
     -p, --pyrimidine  When kmers are of odd length, use pyrimidine based
-                      contexts.
+                      contexts with the middle nucleotide as a reference point
     -i, --ignore-amb  Ignore ambiguous contexts [default=true], setting this
                       param turn this feature off.
     -u, --upper       Turn all sequences uppercase before counting.
@@ -51,10 +51,8 @@ sub main {
   my $seq        = '';
   while (<STDIN>) {
     chomp;
-
     if ( /^>/ ) {
       s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
-
       if ($seq) {
         if ($PARAMS{MASK}) {
           $seq = mask_sequence($seq, $mask->{$last_chrom});
@@ -113,7 +111,6 @@ sub subset_regions {
 
   my %regions   = %{$regions_r};
   my @chroms    = keys %regions;
-
 
   if (@chroms) {
     my ($start, $offset, $seqpart);
@@ -186,12 +183,9 @@ sub update_counts {
   for my $seqpart (@seqparts) {
     my $end = $ks;
     my $seqlen = length($seqpart);
-    for (my $i = 0; $end < $seqlen; $i++) {
+    for (my $i = 0; $end < $seqlen; $i++, $end++) {
       my $ctx = substr($seqpart, $i, $ks);
-      if ($ctx =~ /[0-9]+/) {
-      }
       $counts->{$ctx}++;
-      $end++
     }
   }
   return 0;
@@ -228,9 +222,9 @@ sub parse_args {
       } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
         $params->{IGNORE_LOW} = 1;
       } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
-        $i++; $params->{BEDFILE} = $ARGV[$i];
+        $params->{BEDFILE} = $ARGV[++$i];
       } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
-        $i++; $params->{MASK} = $ARGV[$i];
+        $params->{MASK} = $ARGV[++$i]
       } else {
         die "Unrecongnized argument: $ARGV[$i]\n";
       }
