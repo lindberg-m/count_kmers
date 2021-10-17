@@ -198,7 +198,7 @@ sub parse_bed {
   while (<BED>) {
     chomp;
     my ($chrom, $start, $stop) = split;
-    push @{$regions{$chrom}}, [ $start - 1, $stop ];
+    push @{$regions{$chrom}}, [ $start, $stop ];
   }
   return \%regions;
 }
