@@ -30,17 +30,18 @@ subset fasta based on a bedfile first.
 EOF
 
 my %PARAMS = (
-  VERBOSE    => 0,
-  PYRIMIDINE => 0,
-  IGNORE_AMB => 1,
-  MK_UPPER   => 0,
-  IGNORE_LOW => 0,
-  BEDFILE    => '',
-  MASK       => '',
+  SIZE       => 3,  # K-mer size
+  VERBOSE    => 0,  # Terminal Verbosity
+  PYRIMIDINE => 0,  # Report pyrimidine based kmers only
+  IGNORE_AMB => 1,  # Remove ambiguous nucleotides
+  MK_UPPER   => 0,  # Make sequences uppercase before any processing
+  IGNORE_LOW => 0,  # Remove lower case nucleotides
+  BEDFILE    => '', # Path to bed-file for regions to do analysis on
+  MASK       => '', # Path to bed-file to use for masking the genome
 );
 
 sub main {
-  my $kmer_size = parse_args(\%PARAMS);
+  parse_args(\%PARAMS);
   my %bg_counts;
   my $regions = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
   my $mask    = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
@@ -55,10 +56,10 @@ sub main {
       s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
       if ($seq) {
         if ($PARAMS{MASK}) {
-          $seq = mask_sequence($seq, $mask->{$last_chrom});
+          mask_sequence(\$seq, $mask->{$last_chrom});
         }
         my $seqparts = subset_regions($seq, $last_chrom, $regions);
-        update_counts($seqparts, \%bg_counts, $kmer_size, \%PARAMS);
+        update_counts($seqparts, \%bg_counts, $PARAMS{SIZE}, \%PARAMS);
       }
       $last_chrom = $_;
       $seq = '';
@@ -68,7 +69,7 @@ sub main {
   }
   if ($seq) {
     my $seqparts = subset_regions($seq, $last_chrom, $regions);
-    update_counts($seqparts, \%bg_counts, $kmer_size, \%PARAMS);
+    update_counts($seqparts, \%bg_counts, $PARAMS{SIZE}, \%PARAMS);
   }
 
   # Print results
@@ -76,7 +77,7 @@ sub main {
     # Add combine pyrimidine based kmers with its reverse
     # complement counterparts
     my %bg_counts_pyr;
-    my $mid_point = ($kmer_size - 1) / 2;
+    my $mid_point = ($PARAMS{SIZE} - 1) / 2;
     my $pyrimidines = 'ctCT';
     for my $k (keys %bg_counts) {
       if (substr($k, $mid_point, 1) =~ /[$pyrimidines]/) {
@@ -127,8 +128,8 @@ sub subset_regions {
 }
 
 sub mask_sequence {
-  my $seq  = shift;
-  my $mask = shift;
+  my $seq  = shift; # Scalar Ref to sequence
+  my $mask = shift; # Arref to (start, end) pairs
 
   my @mask_regions = sort {$a->[0] <=> $b->[0]} @{$mask};
   if (scalar @mask_regions > 0) {
@@ -136,11 +137,10 @@ sub mask_sequence {
     my $seqlen;
     for my $r (@mask_regions) {
       $seqlen = $r->[0] - $last_end;
-      substr($seq, $last_end, $seqlen) = 'n' x $seqlen;
+      substr($$seq, $last_end, $seqlen) = 'n' x $seqlen;
       $last_end = $r->[1];
     }
   }
-  return $seq;
 }
 
 sub update_counts {
@@ -204,41 +204,42 @@ sub parse_bed {
 }
 
 sub parse_args {
-  my $params = shift;
-  my $j = 0;
-  my $size;
-  for (my $i = 0; $i<@ARGV; $i++) {
-    if ($ARGV[$i] =~ /^-/) {
-      if ($ARGV[$i] eq '-h' || $ARGV[$i] eq '--help') {
-        die $usage;
-      } elsif ($ARGV[$i] eq '-v' || $ARGV[$i] eq '--verbose') {
-        $params->{VERBOSE} = 1;
-      } elsif ($ARGV[$i] eq '-p' || $ARGV[$i] eq '--pyrimidine') {
-        $params->{PYRIMIDINE} = 1;
-      } elsif ($ARGV[$i] eq '-i' || $ARGV[$i] eq '--ignore-amb'){
-        $params->{IGNORE_AMB} = 0;
-      } elsif ($ARGV[$i] eq '-u' || $ARGV[$i] eq '--upper'){
-        $params->{MK_UPPER} = 1;
-      } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
-        $params->{IGNORE_LOW} = 1;
-      } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
-        $params->{BEDFILE} = $ARGV[++$i];
-      } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
-        $params->{MASK} = $ARGV[++$i]
-      } else {
-        die "Unrecongnized argument: $ARGV[$i]\n";
-      }
-    } else {
-      $j++;
-      $size = $ARGV[$i];
+    my $params = shift;
+    my $j = 0;
+    my $size;
+    for (my $i = 0; $i<@ARGV; $i++) {
+        if ($ARGV[$i] =~ /^-/) {
+            if ($ARGV[$i] eq '-h' || $ARGV[$i] eq '--help') {
+                die $usage;
+            } elsif ($ARGV[$i] eq '-v' || $ARGV[$i] eq '--verbose') {
+                $params->{VERBOSE} = 1;
+            } elsif ($ARGV[$i] eq '-p' || $ARGV[$i] eq '--pyrimidine') {
+                $params->{PYRIMIDINE} = 1;
+            } elsif ($ARGV[$i] eq '-i' || $ARGV[$i] eq '--ignore-amb'){
+                $params->{IGNORE_AMB} = 0;
+            } elsif ($ARGV[$i] eq '-u' || $ARGV[$i] eq '--upper'){
+                $params->{MK_UPPER} = 1;
+            } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
+                $params->{IGNORE_LOW} = 1;
+            } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
+                $params->{BEDFILE} = $ARGV[++$i];
+            } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
+                $params->{MASK} = $ARGV[++$i]
+            } else {
+                die "Unrecongnized argument: $ARGV[$i]\n";
+            }
+        } else {
+            $j++;
+            if ($i == scalar @ARGV) {
+                $PARAMS{SIZE} = $ARGV[$i];
+            }
+        }
     }
-  }
 
-  die "Need 1 positional argument but got $j\n" . $usage unless ($j == 1);
-  if ($size % 2 == 0 && $params->{PYRIMIDINE}) {
-    die "Cannot use pyrimidine based calculation on an even-sized k-mers\n";
-  }
-  return $size;
+    die "Need at most 1 positional argument but got $j\n" . $usage unless ($j > 1);
+    if ($PARAMS{SIZE} % 2 == 0 && $params->{PYRIMIDINE}) {
+        die "Cannot use pyrimidine based calculation on an even-sized k-mers\n";
+    }
 }
 
 sub revcomp {
