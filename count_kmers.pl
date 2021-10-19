@@ -102,7 +102,11 @@ sub count_kmers {
 
   if ($PARAMS{BEDFILE}) {
     foreach my $region (@{$regions}) {
-      my $subseq = subset_region($$seq, $region);
+
+      my $start  = $region->[0];
+      my $end    = $region->[1];
+      my $subseq = substr($$seq, $start, $end - $start);
+
       my $seqparts = remove_ambig_and_softmasked($subseq);
       map { update_counts($_, $counts) } @{$seqparts};
     }
@@ -132,16 +136,6 @@ sub remove_ambig_and_softmasked {
     }
   }
   return \@res;
-}
-
-sub subset_region {
-  my $seq = shift;
-  my $region = shift;
-
-  my $start = $region->[0];
-  my $end   = $region->[1];
-  my $len   = $end - $start;
-  return substr($seq, $start, $len);
 }
 
 sub mask_sequence {
