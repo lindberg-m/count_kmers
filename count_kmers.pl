@@ -5,7 +5,7 @@ use warnings;
 
 my $usage = << "EOF";
 usage:
-  $0 [-h,-v,-p,-i,-u,-l,-b bedfile, -m bedfile] SIZE < fasta_file.fa
+  $0 [-h,-v,-p,-i,-u,-l,-b bedfile, -m bedfile] [SIZE] < fasta_file.fa
 
   Optional Arguments
     -h, --help        Show this message and exit.
@@ -21,11 +21,11 @@ usage:
                       mask regions will be transformed to 'n' characters.
 
   Positional arguments:
-    SIZE              Size of kmers to calculate bgfreq on.
+    SIZE              Size of kmers to calculate bgfreq on. Defaults to 3
 
 This program reads a fasta formatted file from standard input and
-calculate background frequencies of specified length. Optionally,
-subset fasta based on a bedfile first.
+calculate k-mer frequencies of specified length. Optionally,
+subset or mask sequences based on bedfile(s) first.
 
 EOF
 
@@ -42,49 +42,41 @@ my %PARAMS = (
 
 sub main {
   parse_args(\%PARAMS);
-  my %bg_counts;
+  my $bg_counts = {};
   my $regions = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
   my $mask    = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
 
-  # Parse fasta from STDIN and perform subsetting and
-  # counting
+  # Parse fasta from STDIN and perform subsetting and counting
   my $last_chrom = '';
   my $seq        = '';
   while (<STDIN>) {
     chomp;
     if ( /^>/ ) {
       s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
-      if ($seq) {
-        if ($PARAMS{MASK}) {
-          mask_sequence(\$seq, $mask->{$last_chrom});
-        }
-        my $seqparts = subset_regions($seq, $last_chrom, $regions);
-        update_counts($seqparts, \%bg_counts, $PARAMS{SIZE}, \%PARAMS);
-      }
+      count_kmers(\$seq, $mask->{$last_chrom}, $regions->{$last_chrom}, $bg_counts, \%PARAMS) if ($seq);
       $last_chrom = $_;
       $seq = '';
     } else {
       $seq .= $_;
     }
   }
-  if ($seq) {
-    my $seqparts = subset_regions($seq, $last_chrom, $regions);
-    update_counts($seqparts, \%bg_counts, $PARAMS{SIZE}, \%PARAMS);
-  }
+
+  # Last sequence isn't handeled in the while-loop, hence this:
+  count_kmers(\$seq, $mask->{$last_chrom}, $regions->{$last_chrom}, $bg_counts, \%PARAMS) if ($seq);
 
   # Print results
   if ($PARAMS{PYRIMIDINE}) {
-    # Add combine pyrimidine based kmers with its reverse
+    # Combine pyrimidine based kmers with its reverse
     # complement counterparts
     my %bg_counts_pyr;
     my $mid_point = ($PARAMS{SIZE} - 1) / 2;
     my $pyrimidines = 'ctCT';
-    for my $k (keys %bg_counts) {
+    for my $k (keys %{$bg_counts}) {
       if (substr($k, $mid_point, 1) =~ /[$pyrimidines]/) {
-        $bg_counts_pyr{$k} += $bg_counts{$k};
+        $bg_counts_pyr{$k} += $bg_counts->{$k};
       } else {
         my $krc = revcomp($k);
-        $bg_counts_pyr{$krc} += $bg_counts{$krc};
+        $bg_counts_pyr{$krc} += $bg_counts->{$krc};
       }
     }
 
@@ -93,102 +85,98 @@ sub main {
       print "$k\t$bg_counts_pyr{$k}\n";
     }
   } else {
-    for my $k (sort keys %bg_counts) {
-      print "$k\t$bg_counts{$k}\n";
+    for my $k (sort keys $bg_counts->%*) {
+      print "$k\t$bg_counts->{$k}\n";
     }
   }
 }
 
-sub subset_regions {
-  # Accept a sequence with its name
-  # and look up the start and stop positions
-  # for that sequence in a regions hash, parsed
-  # from a BED-file. Returns all parts of the sequence
-  # covered by the specified regions
-  my $seq       = shift; # Arref,  complete DNA sequences for ...
-  my $seqname   = shift; # String, ... this region/chromosome
-  my $regions_r = shift; # Hashref, each key stores an array of (start, end) arrays
-  my @seqparts;
+sub count_kmers {
+  my $seq = shift; 
+  my $mask = shift;
+  my $regions = shift;
+  my $counts = shift;
+  my $params = shift;
 
-  my %regions   = %{$regions_r};
-  my @chroms    = keys %regions;
+  mask_sequence($seq, $mask) if ($params->{MASK});
+  $$seq = uc $$seq           if ($params->{MK_UPPER});
 
-  if (@chroms) {
-    my ($start, $offset, $seqpart);
-    for my $posref (@{$regions{$seqname}}) {
-      $start   = $posref->[0];
-      $offset  = $posref->[1] - $start;
-      $seqpart = substr($seq, $start, $offset);
-      push @seqparts, $seqpart;
+  if ($params->{BEDFILE}) {
+    foreach my $region (@{$regions}) {
+      my $subseq = subset_region($$seq, $region);
+      my $seqparts = remove_ambig_and_softmasked($subseq, $params->{IGNORE_LOW}, $params->{IGNORE_AMB});
+      map { update_counts($_, $counts, $params->{SIZE}) } @{$seqparts};
     }
   } else {
-    @seqparts = ( $seq );
+    my $seqparts = remove_ambig_and_softmasked($seq, $params->{IGNORE_LOW}, $params->{IGNORE_AMB});
+    map { update_counts($_, $counts, $params->{SIZE}) } @{$seqparts};
   }
-  return \@seqparts;
+}
+
+sub remove_ambig_and_softmasked {
+  my $seq          = shift; # Sequence
+  my $rm_lowercase = shift; # Bool
+  my $rm_ambig     = shift; # Bool
+
+  my (@temp, @res);
+  if ($rm_lowercase) {
+    foreach (split /[a-z]+/, $seq) {
+      push @temp, $_;
+    }
+  } else {
+    push @temp, $seq;
+  }
+
+  if ($rm_ambig) {
+    foreach my $sp (@temp) {
+      foreach (split /[nxywrNXYWR]+/, $sp) {
+        push @res, $_;
+      }
+    }
+  }
+  return \@res;
+}
+
+sub subset_region {
+  my $seq = shift;
+  my $region = shift;
+
+  my $start = $region->[0];
+  my $end   = $region->[1];
+  my $len   = $end - $start;
+  return substr($seq, $start, $len);
 }
 
 sub mask_sequence {
-  my $seq  = shift; # Scalar Ref to sequence
+  my $seqr = shift; # Scalar Ref to sequence
   my $mask = shift; # Arref to (start, end) pairs
 
   my @mask_regions = sort {$a->[0] <=> $b->[0]} @{$mask};
+
   if (scalar @mask_regions > 0) {
     my $last_end = 0;
-    my $seqlen;
     for my $r (@mask_regions) {
-      $seqlen = $r->[0] - $last_end;
-      substr($$seq, $last_end, $seqlen) = 'n' x $seqlen;
-      $last_end = $r->[1];
+      my $start  = $r->[0];
+      my $end    = $r->[1];
+      my $seqlen = $end - $start;
+
+      substr($$seqr, $start, $seqlen) = 'n' x $seqlen;
     }
   }
 }
 
 sub update_counts {
-  my $sequence_r = shift; # Arref,   DNA sequences
-  my $counts     = shift; # Hashref, kmer counts per chrom
-  my $ks         = shift; # Integer, size of kmers
-  my $params     = shift; # Hashref, parameters
+  my $seq       = shift; # Arref,   DNA sequences
+  my $counts    = shift; # Hashref, kmer counts per chrom
+  my $kmer_size = shift; # Int,     size of kmers to count
 
-  my @seqparts = @{$sequence_r};
-
-   # Make all parts uppercase if necessary
-  if ($params->{MK_UPPER}) {
-    @seqparts = map (uc, @{$sequence_r}) 
+  my $ctx;
+  my $i = 0;
+  my $seqlen = length($seq);
+  for (my $end = $kmer_size; $end < $seqlen; $end++ ) {
+    $ctx = substr($seq, $i++, $kmer_size);
+    $counts->{$ctx}++;
   }
-  
-  # Remove lowercase characters (if necessary) simply
-  # by splitting them away. 
-  if ($params->{IGNORE_LOW}) {
-    my @aux;
-    for my $sp (@seqparts) {
-      for my $sp2 (split /[a-z]+/, $sp){
-        push @aux, $sp2
-      }
-    }
-    @seqparts = @aux;
-  }
-
-  # Remove ambiguous characters (if necessary) simply
-  # by splitting them away. 
-  if ($params->{IGNORE_AMB}) {
-    my @aux;
-    for my $sp (@seqparts) {
-      for my $sp2 (split /[nxywrNXYWR]+/, $sp) {
-        push @aux, $sp2;
-      }
-    }
-    @seqparts = @aux
-  }
-
-  for my $seqpart (@seqparts) {
-    my $end = $ks;
-    my $seqlen = length($seqpart);
-    for (my $i = 0; $end < $seqlen; $i++, $end++) {
-      my $ctx = substr($seqpart, $i, $ks);
-      $counts->{$ctx}++;
-    }
-  }
-  return 0;
 }
 
 sub parse_bed {
@@ -236,7 +224,7 @@ sub parse_args {
         }
     }
 
-    die "Need at most 1 positional argument but got $j\n" . $usage unless ($j > 1);
+    die "Need at most 1 positional argument but got $j\n" . $usage if ($j > 1);
     if ($PARAMS{SIZE} % 2 == 0 && $params->{PYRIMIDINE}) {
         die "Cannot use pyrimidine based calculation on an even-sized k-mers\n";
     }
