@@ -155,7 +155,7 @@ sub update_counts {
   my $ctx;
   my $i = 0;
   my $seqlen = length($seq);
-  for (my $end = $PARAMS{SIZE}; $end < $seqlen; $end++ ) {
+  for (my $end = $PARAMS{SIZE}; $end <= $seqlen; $end++ ) {
     $ctx = substr($seq, $i++, $PARAMS{SIZE});
     $counts->{$ctx}++;
   }
