@@ -64,30 +64,21 @@ sub main {
   # Last sequence isn't handeled in the while-loop, hence this:
   count_kmers(\$seq, $mask->{$last_chrom}, $regions->{$last_chrom}, $kmer_counts) if ($seq);
 
-  # Print results
+  # Combine pyrimidine based kmers with its reverse complement counterparts if necessary
+  my $kmer_count_results = {};
   if ($PARAMS{PYRIMIDINE}) {
-    # Combine pyrimidine based kmers with its reverse
-    # complement counterparts
-    my %kmer_counts_pyr;
-    my $mid_point = ($PARAMS{SIZE} - 1) / 2;
-    my $pyrimidines = 'ctCT';
-    for my $k (keys %{$kmer_counts}) {
-      if (substr($k, $mid_point, 1) =~ /[$pyrimidines]/) {
-        $kmer_counts_pyr{$k} += $kmer_counts->{$k};
-      } else {
-        my $krc = revcomp($k);
-        $kmer_counts_pyr{$krc} += $kmer_counts->{$krc};
+      my $mid_point = ($PARAMS{SIZE} - 1) / 2;
+      for my $k (keys %{$kmer_counts}) {
+          my $k2 = (substr($k, $mid_point, 1) =~ /cCtT/) ? $k : revcomp($k);
+          $kmer_count_results->{$k2} += $kmer_counts->{$k};
       }
-    }
-
-    # Then print them
-    for my $k (sort keys %kmer_counts_pyr) {
-      print "$k\t$kmer_counts_pyr{$k}\n";
-    }
   } else {
-    for my $k (sort keys $kmer_counts->%*) {
-      print "$k\t$kmer_counts->{$k}\n";
-    }
+      $kmer_count_results = $kmer_counts;
+  }
+
+  # Then print results
+  for my $k (sort keys %{$kmer_count_results}) {
+      print "$k\t$kmer_count_results->{$k}\n";
   }
 }
 
@@ -153,10 +144,12 @@ sub update_counts {
   my $counts    = shift; # Hashref, kmer counts
 
   my $ctx;
-  my $i = 0;
+  my ($start, $end);
   my $seqlen = length($seq);
-  for (my $end = $PARAMS{SIZE}; $end <= $seqlen; $end++ ) {
-    $ctx = substr($seq, $i++, $PARAMS{SIZE});
+  for ($start=0,$end=$PARAMS{SIZE};
+       $end <= $seqlen;
+       $end++,$start++) {
+    $ctx = substr($seq, $start, $PARAMS{SIZE});
     $counts->{$ctx}++;
   }
 }
