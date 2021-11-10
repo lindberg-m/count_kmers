@@ -41,7 +41,7 @@ my %PARAMS = (
 );
 
 sub main {
-  parse_args();
+  parse_args(\%PARAMS);
   my $kmer_counts = {};
   my $regions     = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
   my $mask        = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
@@ -67,18 +67,18 @@ sub main {
   # Combine pyrimidine based kmers with its reverse complement counterparts if necessary
   my $kmer_count_results = {};
   if ($PARAMS{PYRIMIDINE}) {
-      my $mid_point = ($PARAMS{SIZE} - 1) / 2;
-      for my $k (keys %{$kmer_counts}) {
-          my $k2 = (substr($k, $mid_point, 1) =~ /cCtT/) ? $k : revcomp($k);
-          $kmer_count_results->{$k2} += $kmer_counts->{$k};
-      }
+    my $mid_point = ($PARAMS{SIZE} - 1) / 2;
+    for my $k (keys %{$kmer_counts}) {
+      my $k2 = (substr($k, $mid_point, 1) =~ /cCtT/) ? $k : revcomp($k);
+      $kmer_count_results->{$k2} += $kmer_counts->{$k};
+    }
   } else {
-      $kmer_count_results = $kmer_counts;
+    $kmer_count_results = $kmer_counts;
   }
 
   # Then print results
   for my $k (sort keys %{$kmer_count_results}) {
-      print "$k\t$kmer_count_results->{$k}\n";
+    print "$k\t$kmer_count_results->{$k}\n";
   }
 }
 
@@ -134,21 +134,18 @@ sub mask_sequence {
   my $mask = shift; # Arref to (start, end) pairs
 
   for my $r (@$mask) {
-      my $seqlen = $r->[1] - $r->[0];
-      substr($$seqr, $r->[0], $seqlen) = 'n' x $seqlen;
-    }
+    my $seqlen = $r->[1] - $r->[0];
+    substr($$seqr, $r->[0], $seqlen) = 'n' x $seqlen;
+  }
 }
 
 sub update_counts {
   my $seq       = shift; # Scalar,  DNA sequences
   my $counts    = shift; # Hashref, kmer counts
 
-  my $ctx;
-  my ($start, $end);
+  my ($ctx, $start, $end);
   my $seqlen = length($seq);
-  for ($start=0,$end=$PARAMS{SIZE};
-       $end <= $seqlen;
-       $end++,$start++) {
+  for ($start=0,$end=$PARAMS{SIZE}; $end <= $seqlen; $end++,$start++) {
     $ctx = substr($seq, $start, $PARAMS{SIZE});
     $counts->{$ctx}++;
   }
@@ -167,40 +164,41 @@ sub parse_bed {
 }
 
 sub parse_args {
-    my $j = 0;
-    for (my $i = 0; $i<@ARGV; $i++) {
-        if ($ARGV[$i] =~ /^-/) {
-            if ($ARGV[$i] eq '-h' || $ARGV[$i] eq '--help') {
-                die $usage;
-            } elsif ($ARGV[$i] eq '-v' || $ARGV[$i] eq '--verbose') {
-                $PARAMS{VERBOSE} = 1;
-            } elsif ($ARGV[$i] eq '-p' || $ARGV[$i] eq '--pyrimidine') {
-                $PARAMS{PYRIMIDINE} = 1;
-            } elsif ($ARGV[$i] eq '-i' || $ARGV[$i] eq '--ignore-amb'){
-                $PARAMS{IGNORE_AMB} = 0;
-            } elsif ($ARGV[$i] eq '-u' || $ARGV[$i] eq '--upper'){
-                $PARAMS{MK_UPPER} = 1;
-            } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
-                $PARAMS{IGNORE_LOW} = 1;
-            } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
-                $PARAMS{BEDFILE} = $ARGV[++$i];
-            } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
-                $PARAMS{MASK} = $ARGV[++$i]
-            } else {
-                die "Unrecongnized argument: $ARGV[$i]\n";
-            }
-        } else {
-            $j++;
-            if ($i == scalar @ARGV) {
-                $PARAMS{SIZE} = $ARGV[$i];
-            }
-        }
+  my $pars = shift;
+  my $j = 0;
+  for (my $i = 0; $i<@ARGV; $i++) {
+    if ($ARGV[$i] =~ /^-/) {
+      if ($ARGV[$i] eq '-h' || $ARGV[$i] eq '--help') {
+        die $usage;
+      } elsif ($ARGV[$i] eq '-v' || $ARGV[$i] eq '--verbose') {
+        $pars->{VERBOSE} = 1;
+      } elsif ($ARGV[$i] eq '-p' || $ARGV[$i] eq '--pyrimidine') {
+        $pars->{PYRIMIDINE} = 1;
+      } elsif ($ARGV[$i] eq '-i' || $ARGV[$i] eq '--ignore-amb'){
+        $pars->{IGNORE_AMB} = 0;
+      } elsif ($ARGV[$i] eq '-u' || $ARGV[$i] eq '--upper'){
+        $pars->{MK_UPPER} = 1;
+      } elsif ($ARGV[$i] eq '-l' || $ARGV[$i] eq '--ignore-low'){
+        $pars->{IGNORE_LOW} = 1;
+      } elsif ($ARGV[$i] eq '-b' || $ARGV[$i] eq '--bed') {
+        $pars->{BEDFILE} = $ARGV[++$i];
+      } elsif ($ARGV[$i] eq '-m' || $ARGV[$i] eq '--mask') {
+        $pars->{MASK} = $ARGV[++$i]
+      } else {
+        die "Unrecongnized argument: $ARGV[$i]\n";
+      }
+    } else {
+      $j++;
+      if ($i == scalar @ARGV) {
+        $pars->{SIZE} = $ARGV[$i];
+      }
     }
+  }
 
-    die "Need at most 1 positional argument but got $j\n" . $usage if ($j > 1);
-    if ($PARAMS{SIZE} % 2 == 0 && $PARAMS{PYRIMIDINE}) {
-        die "Cannot use pyrimidine based calculation on an even-sized k-mers\n";
-    }
+  die "Need at most 1 positional argument but got $j\n" . $usage if ($j > 1);
+  if ($pars->{SIZE} % 2 == 0 && $pars->{PYRIMIDINE}) {
+    die "Cannot use pyrimidine based calculation on an even-sized k-mers\n";
+  }
 }
 
 sub revcomp {
