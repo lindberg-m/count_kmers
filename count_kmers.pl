@@ -29,6 +29,9 @@ subset or mask sequences based on bedfile(s) first.
 
 EOF
 
+my $DEBUG = 1;
+my $DEBUG_MAX_READ_LINES = 5000;
+
 my %PARAMS = (
   SIZE       => 3,  # K-mer size
   VERBOSE    => 0,  # Terminal Verbosity
@@ -46,6 +49,15 @@ sub main {
   my $regions     = $PARAMS{BEDFILE} ? parse_bed($PARAMS{BEDFILE}) : {};
   my $mask        = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
 
+  if ($DEBUG) {
+    print STDERR 'PARAMS{BEDFILE} is: ' .  ($PARAMS{BEDFILE} ? "nonempty\n" : "empty\n");
+    print STDERR 'PARAMS{MASK} is:    ' .  ($PARAMS{MASK} ? "nonempty\n" : "empty\n");
+    for my $k (keys %PARAMS) {
+        next if ($k eq 'MASK' || $k eq 'BEDFILE');
+        print STDERR "$k : $PARAMS{$k}\n";
+    }
+  }
+
   # Parse fasta from STDIN and perform subsetting and counting
   my $last_chrom = '';
   my $seq        = '';
@@ -59,6 +71,7 @@ sub main {
     } else {
       $seq .= $_;
     }
+    last if ($DEBUG && $. >= $DEBUG_MAX_READ_LINES);
   }
 
   # Last sequence isn't handeled in the while-loop, hence this:
@@ -69,7 +82,7 @@ sub main {
   if ($PARAMS{PYRIMIDINE}) {
     my $mid_point = ($PARAMS{SIZE} - 1) / 2;
     for my $k (keys %{$kmer_counts}) {
-      my $k2 = (substr($k, $mid_point, 1) =~ /cCtT/) ? $k : revcomp($k);
+      my $k2 = (substr($k, $mid_point, 1) =~ /[cCtT]/) ? $k : revcomp($k);
       $kmer_count_results->{$k2} += $kmer_counts->{$k};
     }
   } else {
