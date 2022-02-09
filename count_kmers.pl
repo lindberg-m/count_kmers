@@ -29,8 +29,8 @@ subset or mask sequences based on bedfile(s) first.
 
 EOF
 
-my $DEBUG = 1;
-my $DEBUG_MAX_READ_LINES = 5000;
+my $DEBUG = 0;
+my $DEBUG_MAX_READ_LINES = 1000;
 
 my %PARAMS = (
   SIZE       => 3,  # K-mer size
@@ -50,11 +50,8 @@ sub main {
   my $mask        = $PARAMS{MASK}    ? parse_bed($PARAMS{MASK})    : {};
 
   if ($DEBUG) {
-    print STDERR 'PARAMS{BEDFILE} is: ' .  ($PARAMS{BEDFILE} ? "nonempty\n" : "empty\n");
-    print STDERR 'PARAMS{MASK} is:    ' .  ($PARAMS{MASK} ? "nonempty\n" : "empty\n");
     for my $k (keys %PARAMS) {
-        next if ($k eq 'MASK' || $k eq 'BEDFILE');
-        print STDERR "$k : $PARAMS{$k}\n";
+      print STDERR "$k : $PARAMS{$k}\n";
     }
   }
 
@@ -65,7 +62,7 @@ sub main {
     chomp;
     if ( /^>/ ) {
       s/^>//; print STDERR "$_\n" if ($PARAMS{VERBOSE});
-      count_kmers(\$seq, $mask->{$last_chrom}, $regions->{$last_chrom}, $kmer_counts) if ($seq);
+      count_kmers(\$seq, $last_chrom, $mask, $regions, $kmer_counts) if ($seq);
       $last_chrom = $_;
       $seq = '';
     } else {
@@ -75,71 +72,60 @@ sub main {
   }
 
   # Last sequence isn't handeled in the while-loop, hence this:
-  count_kmers(\$seq, $mask->{$last_chrom}, $regions->{$last_chrom}, $kmer_counts) if ($seq);
+  count_kmers(\$seq, $last_chrom, $mask, $regions, $kmer_counts) if ($seq);
 
   # Combine pyrimidine based kmers with its reverse complement counterparts if necessary
-  my $kmer_count_results = {};
+  my %pyrimidines = ('c' => 1, 'C' => 1, 't' => 1, 'T' => 1);
   if ($PARAMS{PYRIMIDINE}) {
     my $mid_point = ($PARAMS{SIZE} - 1) / 2;
     for my $k (keys %{$kmer_counts}) {
-      my $k2 = (substr($k, $mid_point, 1) =~ /[cCtT]/) ? $k : revcomp($k);
-      $kmer_count_results->{$k2} += $kmer_counts->{$k};
+      my $mid_nuc = substr($k, $mid_point, 1);
+      unless ($pyrimidines{$mid_nuc}) {
+        $kmer_counts->{revcomp($k)} += $kmer_counts->{$k};
+        delete($kmer_counts->{$k});
+        next;
+      }
     }
-  } else {
-    $kmer_count_results = $kmer_counts;
   }
 
   # Then print results
-  for my $k (sort keys %{$kmer_count_results}) {
-    print "$k\t$kmer_count_results->{$k}\n";
+  for my $k (sort keys %{$kmer_counts}) {
+    next if ($PARAMS{IGNORE_LOW} && $k =~ /[a-z]/);
+    next unless ($PARAMS{IGNORE_AMB} && $k =~ /^[atgcATGC]+$/);
+    print "$k\t$kmer_counts->{$k}\n";
   }
 }
 
 sub count_kmers {
   my $seq = shift;     # Scalar ref to dna sequence
-  my $mask = shift;    # Arref      to regions that should be masked
-  my $regions = shift; # Arref      to regions to performa analysis on
-  my $counts = shift;  # Hashref    to kmer-counts
+  my $chrom = shift;
+  my $mask = shift;    # Hashref to chromosomes -> to regions that should be masked
+  my $regions = shift; # Hashref to chromosomes -> to regions to performa analysis on
+  my $counts = shift;  # Hashref to kmer-counts
 
-  mask_sequence($seq, $mask) if ($PARAMS{MASK});
-  $$seq = uc $$seq           if ($PARAMS{MK_UPPER});
+  my $seq_len = length $$seq;
+  return 0 if ($seq_len < 1);
 
+  mask_sequence($seq, $mask->{$chrom}) if ($PARAMS{MASK});
   if ($PARAMS{BEDFILE}) {
-    foreach my $region (@{$regions}) {
+    foreach my $region (@{$regions->{$chrom}}) {
+      my $start = $region->[0];
+      my $end = $region->[1];
 
-      my $start  = $region->[0];
-      my $end    = $region->[1];
-      my $subseq = substr($$seq, $start, $end - $start);
-
-      my $seqparts = remove_ambig_and_softmasked($subseq);
-      map { update_counts($_, $counts) } @{$seqparts};
-    }
-  } else {
-    my $seqparts = remove_ambig_and_softmasked($$seq);
-    map { update_counts($_, $counts) } @{$seqparts};
-  }
-}
-
-sub remove_ambig_and_softmasked {
-  my $seq          = shift; # Sequence
-
-  my (@temp, @res);
-  if ($PARAMS{IGNORE_LOW}) {
-    foreach (split /[a-z]+/, $seq) {
-      push @temp, $_;
-    }
-  } else {
-    push @temp, $seq;
-  }
-
-  if ($PARAMS{IGNORE_AMB}) {
-    foreach my $sp (@temp) {
-      foreach (split /[nxywrNXYWR]+/, $sp) {
-        push @res, $_;
+      if ($end > $seq_len) {
+        print STDERR "WARNING: Bedfile contain end position after end of chromosome:\n";
+        print STDERR "  Chromosome:   $chrom\n";
+        print STDERR "  Chrom length: $seq_len\n";
+        print STDERR "  End pos:      $end\n";
+      } else {
+        my $seq_part = substr($$seq, $start, $end - $start);
+        update_counts(\$seq_part, $counts)
       }
     }
+  } else {
+    update_counts($seq, $counts)
   }
-  return \@res;
+  return 1;
 }
 
 sub mask_sequence {
@@ -153,15 +139,16 @@ sub mask_sequence {
 }
 
 sub update_counts {
-  my $seq       = shift; # Scalar,  DNA sequences
+  my $seq       = shift; # Scalar ref,  DNA sequence
   my $counts    = shift; # Hashref, kmer counts
 
   my ($ctx, $start, $end);
-  my $seqlen = length($seq);
+  my $seqlen = length $$seq;
   for ($start=0,$end=$PARAMS{SIZE}; $end <= $seqlen; $end++,$start++) {
-    $ctx = substr($seq, $start, $PARAMS{SIZE});
+    $ctx = substr($$seq, $start, $PARAMS{SIZE});
     $counts->{$ctx}++;
   }
+  return 1;
 }
 
 sub parse_bed {
